@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -44,14 +43,14 @@ func (kp *KafkaProducer) CreateTopic(topic string, numPartitions, replicationFac
 
 	err = conn.CreateTopics(kafka.TopicConfig{
 		Topic:             topic,
-		NumPartitions:     numPartitions,
-		ReplicationFactor: replicationFactor,
+		NumPartitions:     1,
+		ReplicationFactor: 1,
 	})
-	if err != nil && !strings.Contains(err.Error(), "Topic already exists") {
+	if err != nil {
 		return fmt.Errorf("failed to create topic: %w", err)
 	}
 
-	log.Printf("Kafka topic '%s' created successfully or already exists.\n", topic)
+	log.Println("Kafka topic created successfully:", topic)
 	return nil
 }
 
