@@ -7,9 +7,9 @@ import (
 	"log"
 	"time"
 
-	ckafka "github.com/confluentinc/confluent-kafka-go/kafka" // Alias for confluent-kafka-go
-	"github.com/malav4all/kafka-hexdata-lib/config"           // Adjust the import path as needed
-	"github.com/segmentio/kafka-go"                           // No alias needed for kafka-go
+	ckafka "github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/malav4all/kafka-hexdata-lib/config"
+	"github.com/segmentio/kafka-go"
 )
 
 type KafkaClient struct {
