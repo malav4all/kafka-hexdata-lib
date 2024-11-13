@@ -2,110 +2,101 @@ package producer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
+	"net"
+	"strconv"
+	"strings"
 	"time"
 
-	ckafka "github.com/confluentinc/confluent-kafka-go/kafka"
-	"github.com/malav4all/kafka-hexdata-lib/config"
 	"github.com/segmentio/kafka-go"
 )
 
-type KafkaClient struct {
-	writer *kafka.Writer
+// KafkaProducer is the struct representing the producer.
+type KafkaProducer struct {
+	writer    *kafka.Writer
+	brokerURL string
 }
 
-// NewKafkaClient initializes a new KafkaClient with the provided topic.
-// If the topic does not exist, it will create it.
-func NewKafkaClient(topic string) *KafkaClient {
-	// Ensure the topic exists or create it dynamically
-	err := ensureTopicExists(topic)
-	if err != nil {
-		log.Fatalf("Error ensuring topic exists: %v", err)
-	}
-
-	// Create a Kafka writer
-	return &KafkaClient{
-		writer: kafka.NewWriter(kafka.WriterConfig{
-			Brokers:  config.KafkaBrokers,
-			Topic:    topic,
+// NewKafkaProducer initializes a new KafkaProducer with the given Kafka broker URL.
+func NewKafkaProducer(brokerURL string) *KafkaProducer {
+	return &KafkaProducer{
+		writer: &kafka.Writer{
+			Addr:     kafka.TCP(brokerURL),
 			Balancer: &kafka.LeastBytes{},
-		}),
+		},
+		brokerURL: brokerURL,
 	}
 }
 
-// ensureTopicExists checks if the topic exists and creates it if it doesn't.
-func ensureTopicExists(topic string) error {
-	// Create an admin client
-	adminClient, err := ckafka.NewAdminClient(&ckafka.ConfigMap{"bootstrap.servers": config.KafkaBrokers[0]})
+// CreateTopic creates a Kafka topic if it doesn't already exist.
+func (kp *KafkaProducer) CreateTopic(topic string, numPartitions, replicationFactor int) error {
+	controller, err := kp.getKafkaController()
 	if err != nil {
-		return fmt.Errorf("failed to create Kafka admin client: %w", err)
-	}
-	defer adminClient.Close()
-
-	// Check if the context has a deadline
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return fmt.Errorf("context does not have a deadline")
+		return fmt.Errorf("failed to get Kafka controller: %w", err)
 	}
 
-	// Get metadata with the deadline
-	metadata, err := adminClient.GetMetadata(nil, false, int(deadline.Unix()))
+	conn, err := kafka.Dial("tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
 	if err != nil {
-		return fmt.Errorf("failed to get Kafka metadata: %w", err)
+		return fmt.Errorf("failed to dial controller: %w", err)
 	}
+	defer conn.Close()
 
-	if _, exists := metadata.Topics[topic]; exists {
-		log.Printf("Topic '%s' already exists.\n", topic)
-		return nil
-	}
-
-	// Create the topic if it doesn't exist
-	topicSpec := ckafka.TopicSpecification{
+	err = conn.CreateTopics(kafka.TopicConfig{
 		Topic:             topic,
-		NumPartitions:     1, // Adjust as needed
-		ReplicationFactor: 1, // Adjust as needed
-	}
-
-	results, err := adminClient.CreateTopics(ctx, []ckafka.TopicSpecification{topicSpec})
-	if err != nil {
+		NumPartitions:     numPartitions,
+		ReplicationFactor: replicationFactor,
+	})
+	if err != nil && !strings.Contains(err.Error(), "Topic already exists") {
 		return fmt.Errorf("failed to create topic: %w", err)
 	}
 
-	for _, result := range results {
-		if result.Error.Code() != ckafka.ErrNoError {
-			return fmt.Errorf("failed to create topic '%s': %v", result.Topic, result.Error)
-		}
-	}
-
-	log.Printf("Topic '%s' created successfully.\n", topic)
+	log.Printf("Kafka topic '%s' created successfully or already exists.\n", topic)
 	return nil
 }
 
-// Close closes the Kafka writer, releasing any resources.
-func (kc *KafkaClient) Close() {
-	if err := kc.writer.Close(); err != nil {
-		log.Fatalf("Error closing Kafka writer: %v", err)
+// SendMessage sends a message to the specified Kafka topic.
+func (kp *KafkaProducer) SendMessage(topic string, message []byte) error {
+	// Ensure the topic is set in the writer
+	kp.writer.Topic = topic
+
+	// Write the message
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := kp.writer.WriteMessages(ctx,
+		kafka.Message{
+			Key:   []byte(fmt.Sprintf("%d", time.Now().UnixNano())),
+			Value: message,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to write messages to Kafka: %w", err)
 	}
+
+	log.Printf("Message sent successfully to topic '%s': %s\n", topic, string(message))
+	return nil
 }
 
-// SendMessage sends a JSON-encoded payload to Kafka.
-func (kc *KafkaClient) SendMessage(payload map[string]interface{}) error {
-	body, err := json.Marshal(payload)
+// getKafkaController retrieves the Kafka controller node.
+func (kp *KafkaProducer) getKafkaController() (kafka.Broker, error) {
+	conn, err := kafka.Dial("tcp", kp.brokerURL)
 	if err != nil {
-		return fmt.Errorf("error marshaling payload to JSON: %w", err)
+		return kafka.Broker{}, fmt.Errorf("failed to dial broker: %w", err)
+	}
+	defer conn.Close()
+
+	controller, err := conn.Controller()
+	if err != nil {
+		return kafka.Broker{}, fmt.Errorf("failed to get controller: %w", err)
 	}
 
-	// Send the message to Kafka
-	err = kc.writer.WriteMessages(context.Background(), kafka.Message{
-		Value: body,
-	})
-	if err != nil {
-		return fmt.Errorf("error sending message to Kafka: %w", err)
+	return controller, nil
+}
+
+// Close closes the Kafka writer.
+func (kp *KafkaProducer) Close() {
+	if err := kp.writer.Close(); err != nil {
+		log.Fatalf("Failed to close Kafka writer: %v", err)
 	}
-	return nil
 }

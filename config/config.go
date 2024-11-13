@@ -1,8 +1,13 @@
 package config
 
-var KafkaBrokers = []string{"103.20.214.201:9092"} // Specify your Kafka broker addresses here
+// KafkaConfig holds configuration details for Kafka.
+type KafkaConfig struct {
+	BrokerURL string // Kafka broker URL
+}
 
-// SetKafkaBrokers allows updating the broker list dynamically.
-func SetKafkaBrokers(brokers []string) {
-	KafkaBrokers = brokers
+// DefaultKafkaConfig returns the default Kafka configuration.
+func DefaultKafkaConfig() *KafkaConfig {
+	return &KafkaConfig{
+		BrokerURL: "localhost:9092", // Default Kafka broker address
+	}
 }
