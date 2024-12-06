@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"strconv"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -30,28 +28,30 @@ func NewKafkaProducer(brokerURL string) *KafkaProducer {
 
 // CreateTopic creates a Kafka topic if it doesn't already exist.
 func (kp *KafkaProducer) CreateTopic(topic string, numPartitions, replicationFactor int) error {
-	controller, err := kp.getKafkaController()
+	// Create a controller connection
+	controllerConn, err := kafka.Dial("tcp", kp.brokerURL)
 	if err != nil {
-		return fmt.Errorf("failed to get Kafka controller: %w", err)
+		return fmt.Errorf("failed to dial Kafka controller: %v", err)
+	}
+	defer controllerConn.Close()
+
+	// Create topic using CreateTopics method
+	topicConfigs := []kafka.TopicConfig{
+		{
+			Topic:             topic,
+			NumPartitions:     numPartitions,
+			ReplicationFactor: replicationFactor,
+		},
 	}
 
-	conn, err := kafka.Dial("tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
+	err = controllerConn.CreateTopics(topicConfigs...)
 	if err != nil {
-		return fmt.Errorf("failed to dial controller: %w", err)
-	}
-	defer conn.Close()
-
-	err = conn.CreateTopics(kafka.TopicConfig{
-		Topic:             topic,
-		NumPartitions:     1,
-		ReplicationFactor: 1,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create topic: %w", err)
+		return fmt.Errorf("failed to create topic: %v", err)
 	}
 
-	log.Println("Kafka topic created successfully:", topic)
+	log.Printf("Topic %s created successfully", topic)
 	return nil
+
 }
 
 // SendMessage sends a message to the specified Kafka topic.
