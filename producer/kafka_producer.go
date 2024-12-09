@@ -80,7 +80,7 @@ func (kp *KafkaProducer) SendMessage(topic string, key string, message interface
 		return fmt.Errorf("failed to serialize message: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	err = kp.writer.WriteMessages(ctx,
